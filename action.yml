@@ -1,0 +1,246 @@
+name: "Start nostr-rs-relay"
+description: "Downloads and starts a pre-built nostr-rs-relay"
+
+inputs:
+  port:
+    description: "Port to run the relay on"
+    required: false
+    default: "8000"
+  address:
+    description: "Address to bind the relay on"
+    required: false
+    default: "0.0.0.0"
+  version:
+    description: "Release tag from nostr-relay-action repo (e.g. master or 0.9.0)"
+    required: true
+  start:
+    description: "Whether to start the relay after downloading"
+    required: false
+    default: "true"
+
+  # [info]
+  relay_url:
+    description: "Public-facing URL of the relay"
+    required: false
+    default: ""
+  name:
+    description: "Relay name"
+    required: false
+    default: "nostr-rs-relay (CI)"
+  description:
+    description: "Relay description"
+    required: false
+    default: ""
+  pubkey:
+    description: "Relay operator pubkey (hex)"
+    required: false
+    default: ""
+  contact:
+    description: "Relay operator contact"
+    required: false
+    default: ""
+
+  # [limits]
+  max_event_bytes:
+    description: "Maximum size of an EVENT message in bytes"
+    required: false
+    default: "262144"
+  max_ws_message_bytes:
+    description: "Maximum WebSocket message size in bytes"
+    required: false
+    default: "262144"
+  max_ws_frame_bytes:
+    description: "Maximum WebSocket frame size in bytes"
+    required: false
+    default: "262144"
+  messages_per_sec:
+    description: "Max event writes per second (leave empty for unlimited)"
+    required: false
+    default: ""
+  subscriptions_per_min:
+    description: "Max subscriptions per minute (leave empty for unlimited)"
+    required: false
+    default: ""
+  event_kind_blacklist:
+    description: "Comma-separated list of event kinds to blacklist"
+    required: false
+    default: ""
+  event_kind_allowlist:
+    description: "Comma-separated list of event kinds to allowlist"
+    required: false
+    default: ""
+  limit_scrapers:
+    description: "Whether to limit scrapers"
+    required: false
+    default: "false"
+
+  # [authorization]
+  pubkey_whitelist:
+    description: "Comma-separated list of pubkeys allowed to publish (leave empty to allow all)"
+    required: false
+    default: ""
+  nip42_auth:
+    description: "Enable NIP-42 authentication"
+    required: false
+    default: "false"
+  nip42_dms:
+    description: "Send DMs only to authenticated recipients (requires nip42_auth)"
+    required: false
+    default: "false"
+
+  # [database]
+  db_engine:
+    description: "Database engine (sqlite or rocksdb)"
+    required: false
+    default: "sqlite"
+  db_min_conn:
+    description: "Minimum database connections"
+    required: false
+    default: "4"
+  db_max_conn:
+    description: "Maximum database connections"
+    required: false
+    default: "8"
+  db_in_memory:
+    description: "Use in-memory database (data lost on stop)"
+    required: false
+    default: "true"
+
+  # [options]
+  reject_future_seconds:
+    description: "Reject events with a timestamp more than X seconds in the future (leave empty to disable)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+
+        if [ "$OS" = "linux" ] && [ "$ARCH" = "x86_64" ]; then
+          echo "artifact=nostr-rs-relay-linux-x86_64" >> $GITHUB_OUTPUT
+        elif [ "$OS" = "linux" ] && [ "$ARCH" = "aarch64" ]; then
+          echo "artifact=nostr-rs-relay-linux-aarch64" >> $GITHUB_OUTPUT
+        elif [ "$OS" = "darwin" ] && [ "$ARCH" = "x86_64" ]; then
+          echo "artifact=nostr-rs-relay-macos-x86_64" >> $GITHUB_OUTPUT
+        elif [ "$OS" = "darwin" ] && [ "$ARCH" = "arm64" ]; then
+          echo "artifact=nostr-rs-relay-macos-aarch64" >> $GITHUB_OUTPUT
+        else
+          echo "Unsupported platform: $OS/$ARCH" && exit 1
+        fi
+
+    - name: Cache binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.nostr-relay-bin
+        key: nostr-rs-relay-${{ inputs.version }}-${{ steps.platform.outputs.artifact }}
+
+    - name: Download binary
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        ARTIFACT=${{ steps.platform.outputs.artifact }}
+        URL="https://github.com/hulxv/nostr-relay-action/releases/download/relay-${{ inputs.version }}/${ARTIFACT}"
+
+        mkdir -p ~/.nostr-relay-bin
+        curl -fsSL "$URL" -o ~/.nostr-relay-bin/nostr-rs-relay
+
+        EXPECTED=$(curl -fsSL "${URL}.sha256")
+        ACTUAL=$(sha256sum ~/.nostr-relay-bin/nostr-rs-relay | awk '{print $1}')
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "Checksum mismatch! expected=$EXPECTED actual=$ACTUAL"
+          exit 1
+        fi
+
+        chmod +x ~/.nostr-relay-bin/nostr-rs-relay
+
+    - name: Generate config.toml
+      if: inputs.start == 'true'
+      shell: bash
+      run: |
+        mkdir -p /tmp/nostr-relay-data
+        CFG=/tmp/nostr-relay-data/config.toml
+
+        # Helper: write a TOML array from a comma-separated string
+        toml_array() {
+          echo "$1" | tr ',' '\n' | awk 'NF{printf "\"%s\", ", $0}' | sed 's/, $//'
+        }
+
+        cat > "$CFG" <<EOF
+        [info]
+        ${{ inputs.relay_url != '' && format('relay_url = "{0}"', inputs.relay_url) || '# relay_url not set' }}
+        name = "${{ inputs.name }}"
+        ${{ inputs.description != '' && format('description = "{0}"', inputs.description) || '# description not set' }}
+        ${{ inputs.pubkey != '' && format('pubkey = "{0}"', inputs.pubkey) || '# pubkey not set' }}
+        ${{ inputs.contact != '' && format('contact = "{0}"', inputs.contact) || '# contact not set' }}
+
+        [network]
+        port = ${{ inputs.port }}
+        address = "${{ inputs.address }}"
+
+        [database]
+        data_directory = "/tmp/nostr-relay-data"
+        engine = "${{ inputs.db_engine }}"
+        in_memory = ${{ inputs.db_in_memory }}
+        min_conn = ${{ inputs.db_min_conn }}
+        max_conn = ${{ inputs.db_max_conn }}
+
+        [limits]
+        max_event_bytes = ${{ inputs.max_event_bytes }}
+        max_ws_message_bytes = ${{ inputs.max_ws_message_bytes }}
+        max_ws_frame_bytes = ${{ inputs.max_ws_frame_bytes }}
+        limit_scrapers = ${{ inputs.limit_scrapers }}
+        EOF
+
+        # optional limits
+        [ -n "${{ inputs.messages_per_sec }}" ] && echo 'messages_per_sec = ${{ inputs.messages_per_sec }}' >> "$CFG"
+        [ -n "${{ inputs.subscriptions_per_min }}" ] && echo 'subscriptions_per_min = ${{ inputs.subscriptions_per_min }}' >> "$CFG"
+
+        if [ -n "${{ inputs.event_kind_blacklist }}" ]; then
+          echo "event_kind_blacklist = [$(toml_array '${{ inputs.event_kind_blacklist }}')]" >> "$CFG"
+        fi
+        if [ -n "${{ inputs.event_kind_allowlist }}" ]; then
+          echo "event_kind_allowlist = [$(toml_array '${{ inputs.event_kind_allowlist }}')]" >> "$CFG"
+        fi
+
+        cat >> "$CFG" <<EOF
+
+        [authorization]
+        nip42_auth = ${{ inputs.nip42_auth }}
+        nip42_dms = ${{ inputs.nip42_dms }}
+        EOF
+
+        if [ -n "${{ inputs.pubkey_whitelist }}" ]; then
+          echo "pubkey_whitelist = [$(toml_array '${{ inputs.pubkey_whitelist }}')]" >> "$CFG"
+        fi
+
+        cat >> "$CFG" <<EOF
+
+        [options]
+        EOF
+        [ -n "${{ inputs.reject_future_seconds }}" ] && echo 'reject_future_seconds = ${{ inputs.reject_future_seconds }}' >> "$CFG"
+
+    - name: Start relay
+      if: inputs.start == 'true'
+      shell: bash
+      run: |
+        ~/.nostr-relay-bin/nostr-rs-relay \
+          --config /tmp/nostr-relay-data/config.toml \
+          &
+        echo $! > /tmp/nostr-relay.pid
+
+    - name: Wait for relay to be healthy
+      if: inputs.start == 'true'
+      shell: bash
+      run: |
+        for i in $(seq 1 40); do
+          nc -z 127.0.0.1 ${{ inputs.port }} && echo "Relay is up" && exit 0
+          sleep 0.5
+        done
+        echo "Relay failed to start" && exit 1
