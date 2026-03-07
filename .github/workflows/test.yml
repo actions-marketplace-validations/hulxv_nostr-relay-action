@@ -1,0 +1,131 @@
+name: Test Action
+
+on:
+    pull_request:
+    workflow_dispatch:
+    workflow_call:
+    push:
+        branches: [master]
+
+jobs:
+    test-default:
+        name: Test default startup
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+            - name: Verify relay is up on default port
+              run: nc -z 127.0.0.1 8000 && echo "OK"
+
+    test-custom-port:
+        name: Test custom port
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  port: "7777"
+            - name: Verify relay is up on custom port
+              run: nc -z 127.0.0.1 7777 && echo "OK"
+
+    test-download-only:
+        name: Test download without start
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  start: "false"
+            - name: Verify binary exists and is executable
+              run: |
+                  test -x ~/.nostr-relay-bin/nostr-rs-relay && echo "Binary OK"
+                  ! nc -z 127.0.0.1 8000 && echo "Relay not started as expected"
+
+    test-nip42:
+        name: Test NIP-42 auth config
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  nip42_auth: "true"
+                  nip42_dms: "true"
+            - name: Verify config contains nip42 settings
+              run: |
+                  grep "nip42_auth = true" /tmp/nostr-relay-data/config.toml && echo "nip42_auth OK"
+                  grep "nip42_dms = true" /tmp/nostr-relay-data/config.toml && echo "nip42_dms OK"
+            - name: Verify relay is up
+              run: nc -z 127.0.0.1 8000 && echo "OK"
+
+    test-allowlist:
+        name: Test event kind allowlist config
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  event_kind_allowlist: "1,3,7"
+            - name: Verify config contains allowlist
+              run: grep "event_kind_allowlist" /tmp/nostr-relay-data/config.toml && echo "allowlist OK"
+            - name: Verify relay is up
+              run: nc -z 127.0.0.1 8000 && echo "OK"
+
+    test-in-memory-off:
+        name: Test persistent database
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  db_in_memory: "false"
+            - name: Verify config has in_memory = false
+              run: grep "in_memory = false" /tmp/nostr-relay-data/config.toml && echo "OK"
+            - name: Verify relay is up
+              run: nc -z 127.0.0.1 8000 && echo "OK"
+
+    test-config-generation:
+        name: Test full config generation
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install dependencies
+              run: sudo apt-get update && sudo apt-get install -y curl netcat-openbsd
+            - uses: ./
+              with:
+                  version: "0.9.0"
+                  port: "9000"
+                  name: "Test Relay"
+                  description: "A test relay"
+                  max_event_bytes: "131072"
+                  messages_per_sec: "10"
+                  limit_scrapers: "true"
+                  reject_future_seconds: "300"
+            - name: Verify config values
+              run: |
+                  grep 'port = 9000' /tmp/nostr-relay-data/config.toml && echo "port OK"
+                  grep 'name = "Test Relay"' /tmp/nostr-relay-data/config.toml && echo "name OK"
+                  grep 'max_event_bytes = 131072' /tmp/nostr-relay-data/config.toml && echo "max_event_bytes OK"
+                  grep 'messages_per_sec = 10' /tmp/nostr-relay-data/config.toml && echo "messages_per_sec OK"
+                  grep 'limit_scrapers = true' /tmp/nostr-relay-data/config.toml && echo "limit_scrapers OK"
+                  grep 'reject_future_seconds = 300' /tmp/nostr-relay-data/config.toml && echo "reject_future_seconds OK"
+            - name: Verify relay is up on custom port
+              run: nc -z 127.0.0.1 9000 && echo "OK"
