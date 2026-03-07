@@ -5,7 +5,7 @@ A GitHub Action that downloads and starts a pre-built [`nostr-rs-relay`](https:/
 ## Usage
 
 ```yaml
-- uses: hulxv/nostr-relay-action@master
+- uses: hulxv/nostr-relay-action@v1.0.0
   with:
     version: "0.9.0"
     port: "8080"
@@ -85,7 +85,7 @@ A GitHub Action that downloads and starts a pre-built [`nostr-rs-relay`](https:/
 
 ```yaml
 steps:
-  - uses: hulxv/nostr-relay-action@master
+  - uses: hulxv/nostr-relay-action@v1.0.0
     with:
       version: "0.9.0"
 
@@ -97,7 +97,7 @@ steps:
 
 ```yaml
 steps:
-  - uses: hulxv/nostr-relay-action@master
+  - uses: hulxv/nostr-relay-action@v1.0.0
     with:
       version: "0.9.0"
       port: "7777"
@@ -109,7 +109,7 @@ steps:
 
 ```yaml
 steps:
-  - uses: hulxv/nostr-relay-action@master
+  - uses: hulxv/nostr-relay-action@v1.0.0
     with:
       version: "0.9.0"
       event_kind_allowlist: "1,3,7"
@@ -119,7 +119,7 @@ steps:
 
 ```yaml
 steps:
-  - uses: hulxv/nostr-relay-action@master
+  - uses: hulxv/nostr-relay-action@v1.0.0
     with:
       version: "0.9.0"
       start: "false"

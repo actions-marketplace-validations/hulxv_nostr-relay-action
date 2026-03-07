@@ -1,4 +1,4 @@
-name: "Nostr-rs Relay"
+name: "Nostr Relay"
 description: "Downloads and starts a pre-built nostr-rs-relay"
 
 inputs:
